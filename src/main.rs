@@ -204,6 +204,11 @@ impl<F: PrimeField, P: PermutationParams> PermutationChip<F, P> {
             ]
         });
 
+        // SubBytes / S-Box gate
+        meta.create_gate("SB_Gate", |meta| {
+            // TODO: figure out whether poseidon gets 2 gates for partial and full rounds, or if I can abstract it somehow
+        });
+
         // return a complete PermutationChipConfig
         PermutationChipConfig {
             advice,
