@@ -142,6 +142,17 @@ impl<F: PrimeField, P: PermutationParams> PermutationChip<F, P> {
         let s_add_rcs = meta.selector();
         let s_sub_bytes = meta.selector();
 
+        // enable equality on the instance and advice columns
+        meta.enable_equality(instance);
+        for column in &advice {
+            meta.enable_equality(*column);
+        }
+
+        // enable constant on the fixed columns
+        for column in &fixed {
+            meta.enable_constant(*column);
+        }
+
         // return a complete PermutationChipConfig
         PermutationChipConfig {
             advice,
