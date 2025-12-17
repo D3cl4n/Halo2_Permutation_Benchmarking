@@ -39,6 +39,9 @@ use halo2_proofs::{
 */
 
 
+// structure to store numbers in cells
+struct Number<F: PrimeField>(AssignedCell<F, F>);
+
 // structure for shared parameters for permutation functions
 #[derive(Clone, Debug)]
 struct PermutationParameters {
@@ -107,7 +110,7 @@ struct PoseidonChipConfig<P: PermutationParams> {
 
 // Rescue-Prime chip configuration
 #[derive(Clone, Debug)]
-struct RescuePrimeChipConfig<P: PermutationParams> {
+struct RescueChipConfig<P: PermutationParams> {
     permutation_params: P,
     circuit_params: CircuitParameters,
     // the selector below is specific to Rescue-Prime
@@ -115,10 +118,49 @@ struct RescuePrimeChipConfig<P: PermutationParams> {
     s_sub_bytes_inv: Selector
 }
 
-// structure to store numbers in cells
-struct Number<F: PrimeField>(AssignedCell<F, F>);
+// structure for the poseidon permutation chip
+struct PoseidonChip<F: PrimeField, P: PermutationParams> {
+    config: PoseidonChipConfig<P>,
+    _marker: PhantomData<F>,
+}
 
+// structure for the poseidon permutation chip
+struct RescueChip<F: PrimeField, P: PermutationParams> {
+    config: RescueChipConfig<P>,
+    _marker: PhantomData<F>,
+}
 
+// implement the Chip trait for PoseidonChip
+impl<F: PrimeField, P: PermutationParams> Chip<F> for PoseidonChip<F, P> {
+    type Config = PoseidonChipConfig<P>;
+    type Loaded = ();
+
+    // getter for the chip config
+    fn config(&self) -> &Self::Config {
+        &self.config
+    }
+
+    // getter for the loaded field
+    fn loaded(&self) -> &Self::Loaded {
+        &()
+    }
+}
+
+// implement the Chip trait for RescueChip
+impl<F: PrimeField, P: PermutationParams> Chip<F> for RescueChip<F, P> {
+    type Config = RescueChipConfig<P>;
+    type Loaded = ();
+
+    // getter for the chip config
+    fn config(&self) -> &Self::Config {
+        &self.config
+    }
+
+    // getter for the loaded field
+    fn loaded(&self) -> &Self::Loaded {
+        &()
+    }
+}
 
 
 // main function
