@@ -39,29 +39,29 @@ use halo2_proofs::{
 */
 
 
-// structure for shared parameters
+// structure for shared parameters for permutation functions
 #[derive(Clone, Debug)]
-struct Parameters {
+struct PermutationParameters {
     state_size: usize,
     rate: usize,
     capacity: usize,
-    mds: [[String; 3]; 3]
+    mds: [[String; 3]; 3] // TODO: change this to a field element
 }
 
-// structure for Poseidon specific parameters
+// structure for Poseidon specific permutation parameters
 #[derive(Clone, Debug)]
 struct Poseidon<F: PrimeField> {
-    common_params: Parameters,
+    common_params: PermutationParameters,
     partial_rounds: usize,
     full_rounds: usize,
     n: usize,
     alpha: F
 }
 
-// structure for Rescue-Prime specific parameters
+// structure for Rescue-Prime specific permutation parameters
 #[derive(Clone, Debug)]
 struct RescuePrime<F: PrimeField> {
-    common_params: Parameters,
+    common_params: PermutationParameters,
     rounds: usize,
     alpha: F,
     alpha_inv: F
@@ -69,50 +69,85 @@ struct RescuePrime<F: PrimeField> {
 
 // trait for shared parameters that RescuePrime and Poseidon structs implement
 trait PermutationParams: Clone + Debug {
-    fn common(&self) -> &Parameters;
+    fn common(&self) -> &PermutationParameters;
 }
 
 // implementations for the PermutationParams trait
 impl<F: PrimeField> PermutationParams for Poseidon<F> {
-    fn common(&self) -> &Parameters {
+    fn common(&self) -> &PermutationParameters {
         &self.common_params
     }
 }
 
 impl<F: PrimeField> PermutationParams for RescuePrime<F> {
-    fn common(&self) -> &Parameters {
+    fn common(&self) -> &PermutationParameters {
         &self.common_params
     }
 }
 
-// common structure for chip configuration, referencing permutation specific param structure
+// struture for common circuit parameters
 #[derive(Clone, Debug)]
-struct PermutationChipConfig<P: PermutationParams> {
+struct CircuitParameters {
     advice: [Column<Advice>; 3],
     fixed: [Column<Fixed>; 3],
     instance: Column<Instance>,
-    params: P,
     s_mds_mul: Selector,
-    s_add_rcs: Selector,
+    s_add_rcs: Selector
+}
+
+// Poseidon chip configuration
+#[derive(Clone, Debug)]
+struct PoseidonChipConfig<P: PermutationParams> {
+    permutation_params: P,
+    circuit_params: CircuitParameters,
+    // the below selectors are specific to Poseidon (Hades construction)
     s_sub_bytes_full: Selector,
-    s_sub_bytes_partial: Selector // specifically for Poseidon partial rounds, unused with Rescue-Prime (no performance hit)
+    s_sub_bytes_partial: Selector
+}
+
+// Rescue-Prime chip configuration
+#[derive(Clone, Debug)]
+struct RescuePrimeChipConfig<P: PermutationParams> {
+    permutation_params: P,
+    circuit_params: CircuitParameters,
+    // the selector below is specific to Rescue-Prime
+    s_sub_bytes: Selector,
+    s_sub_bytes_inv: Selector
+}
+
+// trait that both PoseidonChipConfig and RescuePrimeChipConfig implement
+trait ChipConfig: Clone + Debug {
+    fn common(&self) -> &CircuitParameters;
+}
+
+// implementations for the ChipConfig trait
+impl<P: PermutationParams> ChipConfig for PoseidonChipConfig<P> {
+    fn common(&self) -> &CircuitParameters {
+        &self.circuit_params
+    }
+}
+
+impl<P: PermutationParams> ChipConfig for RescuePrimeChipConfig<P> {
+    fn common(&self) -> &CircuitParameters {
+        &self.circuit_params
+    }
 }
 
 // structure for the permutation chip
-struct PermutationChip<F: PrimeField, P: PermutationParams> {
-    config: PermutationChipConfig<P>,
+struct PermutationChip<F: PrimeField, T: ChipConfig> {
+    config: T,
     _marker: PhantomData<F>,
 }
 
 // structure to store numbers in cells
 struct Number<F: PrimeField>(AssignedCell<F, F>);
 
-// implement the Chip trait for the PermutationChip
-impl<F: PrimeField, P: PermutationParams> Chip<F> for PermutationChip<F, P> {
-    type Config = PermutationChipConfig<P>;
+// implement the chip trait for PermutationChip
+impl<F: PrimeField, T: ChipConfig> Chip<F> for PermutationChip<F, T> {
+    type Config = T;
     type Loaded = ();
 
-    // getter for the chip config type
+    // getter for the chip configuration
     fn config(&self) -> &Self::Config {
         &self.config
     }
@@ -120,124 +155,6 @@ impl<F: PrimeField, P: PermutationParams> Chip<F> for PermutationChip<F, P> {
     // getter for the loaded type
     fn loaded(&self) -> &Self::Loaded {
         &()
-    }
-}
-
-// implement gates, additional functions, etc. for PermutationChip
-impl<F: PrimeField, P: PermutationParams> PermutationChip<F, P> {
-    // constructor
-    fn construct(config: <Self as Chip<F>>::Config) -> Self {
-        PermutationChip {config, _marker: PhantomData}
-    }
-
-    // configure the chip including all gates, constraints, and selectors
-    fn configure(
-        meta: &mut ConstraintSystem<F>,
-        advice: [Column<Advice>; 3],
-        fixed: [Column<Fixed>; 3],
-        instance: Column<Instance>, 
-        params: P
-    ) -> <Self as Chip<F>>::Config {
-        // define the necessary selectors
-        let s_mds_mul = meta.selector();
-        let s_add_rcs = meta.selector();
-        let s_sub_bytes_full = meta.selector();
-        let s_sub_bytes_partial = meta.selector();
-
-        // enable equality on the instance and advice columns
-        meta.enable_equality(instance);
-        for column in &advice {
-            meta.enable_equality(*column);
-        }
-
-        // enable constant on the fixed columns
-        for column in &fixed {
-            meta.enable_constant(*column);
-        }
-
-        // MDS multiply gate - linear layer for Poseidon and Rescue-Prime
-        meta.create_gate("MDS_Mul_Gate", |meta| {
-            let s_mds_mul = meta.query_selector(s_mds_mul);
-            let a0 = meta.query_advice(advice[0], Rotation::cur());
-            let a1 = meta.query_advice(advice[1], Rotation::cur());
-            let a2 = meta.query_advice(advice[2], Rotation::cur());
-            let a0_next = meta.query_advice(advice[0], Rotation::next());
-            let a1_next = meta.query_advice(advice[1], Rotation::next());
-            let a2_next = meta.query_advice(advice[2], Rotation::next());
-
-            // shared MDS matrix elements
-            let common_mds = &params.common().mds;
-            let mds_0_0 = Expression::Constant(F::from_str_vartime(&common_mds[0][0]).unwrap());
-            let mds_0_1 = Expression::Constant(F::from_str_vartime(&common_mds[0][1]).unwrap());
-            let mds_0_2 = Expression::Constant(F::from_str_vartime(&common_mds[0][2]).unwrap());
-            let mds_1_0 = Expression::Constant(F::from_str_vartime(&common_mds[1][0]).unwrap());
-            let mds_1_1 = Expression::Constant(F::from_str_vartime(&common_mds[1][1]).unwrap());
-            let mds_1_2 = Expression::Constant(F::from_str_vartime(&common_mds[1][2]).unwrap());
-            let mds_2_0 = Expression::Constant(F::from_str_vartime(&common_mds[2][0]).unwrap());
-            let mds_2_1 = Expression::Constant(F::from_str_vartime(&common_mds[2][1]).unwrap());
-            let mds_2_2 = Expression::Constant(F::from_str_vartime(&common_mds[2][2]).unwrap());
-
-            // constraint checks matrix vector product
-            vec![
-                s_mds_mul.clone() * (a0_next - (a0.clone()*mds_0_0 + a1.clone()*mds_0_1 + a2.clone()*mds_0_2)),
-                s_mds_mul.clone() * (a1_next - (a0.clone()*mds_1_0 + a1.clone()*mds_1_1 + a2.clone()*mds_1_2)),
-                s_mds_mul * (a2_next - (a0*mds_2_0 + a1*mds_2_1 + a2*mds_2_2))
-            ]
-        });
-
-        // AddRoundConstants / InjectRoundConstants gate
-        meta.create_gate("ARC_Gate", |meta| {
-            let s_add_rcs = meta.query_selector(s_add_rcs);
-            let a0 = meta.query_advice(advice[0], Rotation::cur());
-            let a1 = meta.query_advice(advice[1], Rotation::cur());
-            let a2 = meta.query_advice(advice[2], Rotation::cur());
-            let a0_next = meta.query_advice(advice[0], Rotation::next());
-            let a1_next = meta.query_advice(advice[1], Rotation::next());
-            let a2_next = meta.query_advice(advice[2], Rotation::next());
-            let rc0 = meta.query_fixed(fixed[0]); // query_fixed reads from current row when gate is active
-            let rc1 = meta.query_fixed(fixed[1]);
-            let rc2 = meta.query_fixed(fixed[2]);
-
-            // constraint should be vec![0, 0, 0]
-            vec![
-                s_add_rcs.clone() * (a0_next - (a0 + rc0)), 
-                s_add_rcs.clone() * (a1_next - (a1 + rc1)), 
-                s_add_rcs * (a2_next - (a2 + rc2))
-            ]
-        });
-
-        // SubBytes / S-Box gate for all state elements, used by both permutations
-        meta.create_gate("SB_Full_Gate", |meta| {
-            let s_sub_bytes_full = meta.query_selector(s_sub_bytes_full);
-            let a0 = meta.query_advice(advice[0], Rotation::cur());
-            let a1 = meta.query_advice(advice[1], Rotation::cur());
-            let a2 = meta.query_advice(advice[2], Rotation::cur());
-            let a0_next = meta.query_advice(advice[0], Rotation::next());
-            let a1_next = meta.query_advice(advice[1], Rotation::next());
-            let a2_next = meta.query_advice(advice[2], Rotation::next());
-
-            //TODO: figure out constraint, need to reference alpha or alpha_inv from permutation config?
-        });
-
-        // SubBytes / S-Box gate for only the first state element, used by Poseidon, no hit to Rescue-Prime since it is unused
-        meta.create_gate("SB_Partial_Gate", |meta| {
-            let s_sub_bytes_partial = meta.query_selector(s_sub_bytes_partial);
-            let a0 = meta.query_advice(advice[0], Rotation::cur());
-            let a0_next = meta.query_advice(advice[0], Rotation::next());
-
-            //TODO: write constraint and reference permutation config struct
-        });
-
-        // return a complete PermutationChipConfig
-        PermutationChipConfig {
-            advice,
-            fixed, 
-            instance, 
-            params,
-            s_mds_mul,
-            s_add_rcs,
-            s_sub_bytes
-        }
     }
 }
 
