@@ -199,7 +199,7 @@ fn create_mds_mul_gate<F: PrimeField>(
     s_mds_mul: Selector,
     mds: &[[F; 3]; 3]
 ) {
-    meta.create_gate("M_gate", |meta| {
+    meta.create_gate("ML_gate", |meta| {
         let s_mds_mul = meta.query_selector(s_mds_mul);
         let a0 = meta.query_advice(advice[0], Rotation::cur());
         let a1 = meta.query_advice(advice[1], Rotation::cur());
@@ -266,7 +266,29 @@ fn create_full_sbox_gate_ps<F: PrimeField>(
 }
 
 // helper functions for creating Rescue-Prime specific gates
+// alpha = 3
+// alpha_inv = 12297829382473034371 = inverse(3, p-1)
+fn create_sbox_gate_rs<F: PrimeField>(
+    meta: &mut ConstraintSystem<F>, 
+    advice: [Column<Advice>; 3],
+    s_sub_bytes: Selector
+) {
+    meta.create_gate("RS_sbox_gate", |meta| {
+        let s_sub_bytes = meta.query_selector(s_sub_bytes);
+        let a0 = meta.query_advice(advice[0], Rotation::cur());
+        let a1 = meta.query_advice(advice[1], Rotation::cur());
+        let a2 = meta.query_advice(advice[2], Rotation::cur()); 
+        let a0_next = meta.query_advice(advice[0], Rotation::next());
+        let a1_next = meta.query_advice(advice[1], Rotation::next());
+        let a2_next = meta.query_advice(advice[2], Rotation::next());
 
+        vec![
+            s_sub_bytes.clone() * (a0_next - (a0.clone()*a0.clone()*a0)),
+            s_sub_bytes.clone() * (a1_next - (a1.clone()*a1.clone()*a1)),
+            s_sub_bytes * (a2_next - (a2.clone()*a2.clone()*a2))
+        ]
+    });
+}
 
 // main function
 fn main() {
