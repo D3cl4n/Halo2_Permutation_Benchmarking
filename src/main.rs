@@ -44,17 +44,17 @@ struct Number<F: PrimeField>(AssignedCell<F, F>);
 
 // structure for shared parameters for permutation functions
 #[derive(Clone, Debug)]
-struct PermutationParameters {
+struct PermutationParameters<F: PrimeField> {
     state_size: usize,
     rate: usize,
     capacity: usize,
-    mds: [[String; 3]; 3] // TODO: change this to a field element
+    mds: [[F; 3]; 3] // TODO: change this to a field element
 }
 
 // structure for Poseidon specific permutation parameters
 #[derive(Clone, Debug)]
 struct Poseidon<F: PrimeField> {
-    common_params: PermutationParameters,
+    common_params: PermutationParameters<F>,
     partial_rounds: usize,
     full_rounds: usize,
     n: usize,
@@ -64,26 +64,26 @@ struct Poseidon<F: PrimeField> {
 // structure for Rescue-Prime specific permutation parameters
 #[derive(Clone, Debug)]
 struct RescuePrime<F: PrimeField> {
-    common_params: PermutationParameters,
+    common_params: PermutationParameters<F>,
     rounds: usize,
     alpha: F,
     alpha_inv: F
 }
 
 // trait for shared parameters that RescuePrime and Poseidon structs implement
-trait PermutationParams: Clone + Debug {
-    fn common(&self) -> &PermutationParameters;
+trait PermutationParams<F: PrimeField>: Clone + Debug {
+    fn common(&self) -> &PermutationParameters<F>;
 }
 
 // implementations for the PermutationParams trait
-impl<F: PrimeField> PermutationParams for Poseidon<F> {
-    fn common(&self) -> &PermutationParameters {
+impl<F: PrimeField> PermutationParams<F> for Poseidon<F> {
+    fn common(&self) -> &PermutationParameters<F> {
         &self.common_params
     }
 }
 
-impl<F: PrimeField> PermutationParams for RescuePrime<F> {
-    fn common(&self) -> &PermutationParameters {
+impl<F: PrimeField> PermutationParams<F> for RescuePrime<F> {
+    fn common(&self) -> &PermutationParameters<F> {
         &self.common_params
     }
 }
@@ -100,9 +100,10 @@ struct CircuitParameters {
 
 // Poseidon chip configuration
 #[derive(Clone, Debug)]
-struct PoseidonChipConfig<P: PermutationParams> {
+struct PoseidonChipConfig<F: PrimeField, P: PermutationParams<F>> {
     permutation_params: P,
     circuit_params: CircuitParameters,
+    _marker: PhantomData<F>,
     // the below selectors are specific to Poseidon (Hades construction)
     s_sub_bytes_full: Selector,
     s_sub_bytes_partial: Selector
@@ -110,29 +111,30 @@ struct PoseidonChipConfig<P: PermutationParams> {
 
 // Rescue-Prime chip configuration
 #[derive(Clone, Debug)]
-struct RescueChipConfig<P: PermutationParams> {
+struct RescueChipConfig<F: PrimeField, P: PermutationParams<F>> {
     permutation_params: P,
     circuit_params: CircuitParameters,
+    _marker: PhantomData<F>,
     // the selector below is specific to Rescue-Prime
     s_sub_bytes: Selector,
     s_sub_bytes_inv: Selector
 }
 
 // structure for the poseidon permutation chip
-struct PoseidonChip<F: PrimeField, P: PermutationParams> {
-    config: PoseidonChipConfig<P>,
+struct PoseidonChip<F: PrimeField, P: PermutationParams<F>> {
+    config: PoseidonChipConfig<F, P>,
     _marker: PhantomData<F>,
 }
 
 // structure for the poseidon permutation chip
-struct RescueChip<F: PrimeField, P: PermutationParams> {
-    config: RescueChipConfig<P>,
+struct RescueChip<F: PrimeField, P: PermutationParams<F>> {
+    config: RescueChipConfig<F, P>,
     _marker: PhantomData<F>,
 }
 
 // implement the Chip trait for PoseidonChip
-impl<F: PrimeField, P: PermutationParams> Chip<F> for PoseidonChip<F, P> {
-    type Config = PoseidonChipConfig<P>;
+impl<F: PrimeField, P: PermutationParams<F>> Chip<F> for PoseidonChip<F, P> {
+    type Config = PoseidonChipConfig<F, P>;
     type Loaded = ();
 
     // getter for the chip config
@@ -147,8 +149,8 @@ impl<F: PrimeField, P: PermutationParams> Chip<F> for PoseidonChip<F, P> {
 }
 
 // implement the Chip trait for RescueChip
-impl<F: PrimeField, P: PermutationParams> Chip<F> for RescueChip<F, P> {
-    type Config = RescueChipConfig<P>;
+impl<F: PrimeField, P: PermutationParams<F>> Chip<F> for RescueChip<F, P> {
+    type Config = RescueChipConfig<F, P>;
     type Loaded = ();
 
     // getter for the chip config
@@ -195,7 +197,7 @@ fn create_mds_mul_gate<F: PrimeField>(
     meta: &mut ConstraintSystem<F>, 
     advice: [Column<Advice>; 3], 
     s_mds_mul: Selector,
-    mds: &[[String; 3]; 3]
+    mds: &[[F; 3]; 3]
 ) {
     meta.create_gate("M_gate", |meta| {
         let s_mds_mul = meta.query_selector(s_mds_mul);
@@ -207,15 +209,15 @@ fn create_mds_mul_gate<F: PrimeField>(
         let a2_next = meta.query_advice(advice[2], Rotation::next());
 
         // MDS matrix elements from row in column 0 -> column 2 order, use Expression:Constant to embed into polynomial
-        let mds_0_0 = Expression::Constant(F::from_str_vartime(&mds[0][0]).unwrap());
-        let mds_0_1 = Expression::Constant(F::from_str_vartime(&mds[0][1]).unwrap());
-        let mds_0_2 = Expression::Constant(F::from_str_vartime(&mds[0][2]).unwrap());
-        let mds_1_0 = Expression::Constant(F::from_str_vartime(&mds[1][0]).unwrap());
-        let mds_1_1 = Expression::Constant(F::from_str_vartime(&mds[1][1]).unwrap());
-        let mds_1_2 = Expression::Constant(F::from_str_vartime(&mds[1][2]).unwrap());
-        let mds_2_0 = Expression::Constant(F::from_str_vartime(&mds[2][0]).unwrap());
-        let mds_2_1 = Expression::Constant(F::from_str_vartime(&mds[2][1]).unwrap());
-        let mds_2_2 = Expression::Constant(F::from_str_vartime(&mds[2][2]).unwrap());
+        let mds_0_0 = Expression::Constant(mds[0][0]);
+        let mds_0_1 = Expression::Constant(mds[0][1]);
+        let mds_0_2 = Expression::Constant(mds[0][2]);
+        let mds_1_0 = Expression::Constant(mds[1][0]);
+        let mds_1_1 = Expression::Constant(mds[1][1]);
+        let mds_1_2 = Expression::Constant(mds[1][2]);
+        let mds_2_0 = Expression::Constant(mds[2][0]);
+        let mds_2_1 = Expression::Constant(mds[2][1]);
+        let mds_2_2 = Expression::Constant(mds[2][2]);
         
         // constraint - computes vector matrix product
         vec![
