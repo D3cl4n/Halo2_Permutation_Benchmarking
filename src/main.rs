@@ -1,6 +1,8 @@
 use std::marker::PhantomData;
 use ff::PrimeField;
+use num_bigint::BigUint;
 use std::fmt::Debug;
+use std::str::FromStr;
 use halo2_proofs::{
     circuit::{AssignedCell, Region, Chip, Layouter, SimpleFloorPlanner, Value},
     plonk::{Advice, Fixed, Circuit, Column, ConstraintSystem, Error, Instance, Selector, Expression},
@@ -72,7 +74,7 @@ struct RescuePrime<F: PrimeField> {
     common_params: PermutationParameters<F>,
     rounds: usize,
     alpha: F,
-    alpha_inv: u64
+    alpha_inv: BigUint
 }
 
 // struture for common circuit parameters
@@ -757,12 +759,12 @@ impl<F: PrimeField> PermutationInstructions<F> for RescueChip<F> {
                     config.s_sub_bytes_inv.enable(region, *offset)?;
                     *offset += 1;
                     
-                    let alpha_inv_slice: &[u64] = &[config.permutation_params.alpha_inv];
+                    let alpha_inv_vec: Vec<u64> = config.permutation_params.alpha_inv.to_u64_digits();
 
                     let after_sb_inv = [
-                        state[0].value().map(|v| v.pow(alpha_inv_slice)),
-                        state[1].value().map(|v| v.pow(alpha_inv_slice)),
-                        state[2].value().map(|v| v.pow(alpha_inv_slice))
+                        state[0].value().map(|v| v.pow_vartime(&alpha_inv_vec)),
+                        state[1].value().map(|v| v.pow(&alpha_inv_vec)),
+                        state[2].value().map(|v| v.pow(&alpha_inv_vec))
                     ];
 
                     state[0] = region.assign_advice(|| "s0_sb", config.circuit_params.advice[0], *offset, || after_sb_inv[0])?;
@@ -863,6 +865,48 @@ impl<F: PrimeField> Circuit<F> for PoseidonCircuit<F> {
     }
 }
 
+// implementation of the Circuit trait for the Rescue-Prime Circuit
+impl<F: PrimeField> Circuit<F> for RescueCircuit<F> {
+    type Config = RescueChipConfig<F>;
+    type FloorPlanner = SimpleFloorPlanner;
+
+    fn without_witnesses(&self) -> Self {
+        Self::default()
+    }
+
+    fn configure(meta: &mut ConstraintSystem<F>) -> Self::Config {
+        let advice = [meta.advice_column(), meta.advice_column(), meta.advice_column()];
+        let fixed = [meta.fixed_column(), meta.fixed_column(), meta.fixed_column()];
+        let instance = meta.instance_column();
+        
+        let common_params = get_common_params();
+        let permutation_params = RescuePrime {
+            common_params,
+            rounds: 4,
+            alpha: F::from(5),
+            alpha_inv: BigUint::from_str("20974350070050476191779096203274386335076221000211055129041463479975432473805").unwrap()
+        };
+        
+        RescueChip::configure(meta, advice, fixed, instance, permutation_params)
+    }
+
+    fn synthesize(&self, config: Self::Config, mut layouter: impl Layouter<F>) -> Result<(), Error> {
+        let chip = RescueChip::construct(config);
+        let result = chip.permute(
+            layouter.namespace(|| "rescue_permutation"),
+            self.s0,
+            self.s1,
+            self.s2
+        )?;
+
+        chip.expose_as_public(layouter.namespace(|| "result_s0"), Number(result[0].0.clone()), 0)?; // better way than re-wrap?
+        chip.expose_as_public(layouter.namespace(|| "result_s1"), Number(result[1].0.clone()), 1)?;
+        chip.expose_as_public(layouter.namespace(|| "result_s2"), Number(result[2].0.clone()), 2)?;
+        
+        Ok(())
+    }
+}
+
 // main function
 fn main() {
     use halo2_proofs::dev::MockProver;
@@ -873,20 +917,36 @@ fn main() {
     let init_s1 = Fr::from(1);
     let init_s2 = Fr::from(2);
 
-    // circuit struct 
-    let circuit = PoseidonCircuit {
+    // Poseidon circuit struct 
+    let circuit_ps = PoseidonCircuit {
         s0: Value::known(init_s0),
         s1: Value::known(init_s1),
         s2: Value::known(init_s2),
     };
 
     let k = 10;
-    let expected = vec![
+    let expected_ps = vec![
         Fr::from_str_vartime("18456658763349757341014058622209659766100673761449600566550821987295786346378").unwrap(),
         Fr::from_str_vartime("37068251774887509885063625701815026138353041152735229476479055620962268601796").unwrap(),
         Fr::from_str_vartime("26763157702141528937904191329664859174584798817251788852101947537759678822298").unwrap()
     ];
 
-    let prover = MockProver::run(k, &circuit, vec![expected]).unwrap();
+    let prover = MockProver::run(k, &circuit_ps, vec![expected_ps]).unwrap();
+    assert_eq!(prover.verify(), Ok(()));
+
+    // Rescue-Prime circuit struct
+    let circuit_rs = RescueCircuit {
+        s0: Value::known(init_s0),
+        s1: Value::known(init_s1),
+        s2: Value::known(init_s2)
+    };
+
+    let expected_rs = vec![
+        Fr::from_str_vartime("9743728306559815792673738908577468910892344344561593155787415422694363888408").unwrap(),
+        Fr::from_str_vartime("41187473403525060135959981954089244963635669670057799531881350863772775624014").unwrap(),
+        Fr::from_str_vartime("14710483762852923022812264436999529386688868033847803745716169025897969831615").unwrap()
+    ];
+
+    let prover = MockProver::run(k, &circuit_rs, vec![expected_rs]).unwrap();
     assert_eq!(prover.verify(), Ok(()));
 }

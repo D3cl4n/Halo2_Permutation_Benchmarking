@@ -456,6 +456,7 @@ dependencies = [
  "ff",
  "halo2_proofs",
  "halo2curves",
+ "num-bigint",
 ]
 
 [[package]]
