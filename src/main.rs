@@ -630,6 +630,56 @@ impl<F: PrimeField> PermutationInstructions<F> for RescueChip<F> {
                     a * temp // a^3
                 };
 
+                // helper function for MDS multiplication
+                let mds_mul = |state: &mut [AssignedCell<F, F>; 3], region: &mut Region<F>, offset: &mut usize| -> Result<(), Error> {
+                    let mds = [
+                        [
+                            config.permutation_params.common_params.mds[0][0], 
+                            config.permutation_params.common_params.mds[0][1], 
+                            config.permutation_params.common_params.mds[0][2]],
+                        [
+                            config.permutation_params.common_params.mds[1][0], 
+                            config.permutation_params.common_params.mds[1][1], 
+                            config.permutation_params.common_params.mds[1][2]
+                        ],
+                        [
+                            config.permutation_params.common_params.mds[2][0], 
+                            config.permutation_params.common_params.mds[2][1], 
+                            config.permutation_params.common_params.mds[2][2]
+                        ]
+                    ];
+
+                    config.circuit_params.s_mds_mul.enable(region, *offset)?;
+                    *offset += 1;
+
+                    let after_ml = [
+                        state[0].value().copied()
+                            .zip(state[1].value().copied())
+                            .zip(state[2].value().copied()) // gives ((Value<F>, Value<F>), Value<F>)
+                            .map(|((s0, s1), s2)| {
+                                s0 * mds[0][0] + s1 * mds[0][1] + s2 * mds[0][2]
+                            }),
+                        state[0].value().copied()
+                            .zip(state[1].value().copied())
+                            .zip(state[2].value().copied())
+                            .map(|((s0, s1), s2)| {
+                                s0 * mds[1][0] + s1 * mds[1][1] + s2 * mds[1][2]
+                            }),
+                        state[0].value().copied()
+                            .zip(state[1].value().copied())
+                            .zip(state[2].value().copied()) 
+                            .map(|((s0, s1), s2)| {
+                                s0 * mds[2][0] + s1 * mds[2][1] + s2 * mds[2][2]
+                            }),
+                    ];
+
+                    state[0] = region.assign_advice(|| "s0_ml", config.circuit_params.advice[0], *offset, || after_ml[0])?;
+                    state[1] = region.assign_advice(|| "s1_ml", config.circuit_params.advice[1], *offset, || after_ml[1])?;
+                    state[2] = region.assign_advice(|| "s2_ml", config.circuit_params.advice[2], *offset, || after_ml[2])?;
+
+                    Ok(())
+                };
+
                 // helper function for computing one rescue round
                 let rescue_round = |
                     region: &mut Region<F>,
@@ -650,15 +700,15 @@ impl<F: PrimeField> PermutationInstructions<F> for RescueChip<F> {
                     state[1] = region.assign_advice(|| "s1_sb", config.circuit_params.advice[1], *offset, || after_sb[1])?;
                     state[2] = region.assign_advice(|| "s2_sb", config.circuit_params.advice[2], *offset, || after_sb[2])?;
 
-                    config.circuit_params.s_mds_mul.enable(region, *offset)?;
-                    *offset += 1;
-                    //TODO fill in mds multiply here but make it a helper function since Rescue calls it twice
+                    // MDS Multiplication helper function
+                    mds_mul(state, region, offset)?;
 
                     // assign the needed round constants to the fixed column for gate to read from, use local vars for state
-                    let rc0 = F::from_str_vartime(ROUND_CONSTANTS_PS[*constant_idx]).unwrap();
-                    let rc1 = F::from_str_vartime(ROUND_CONSTANTS_PS[*constant_idx + 1]).unwrap();
-                    let rc2 = F::from_str_vartime(ROUND_CONSTANTS_PS[*constant_idx + 2]).unwrap();
+                    let rc0 = F::from_str_vartime(ROUND_CONSTANTS_RS[*constant_idx]).unwrap();
+                    let rc1 = F::from_str_vartime(ROUND_CONSTANTS_RS[*constant_idx + 1]).unwrap();
+                    let rc2 = F::from_str_vartime(ROUND_CONSTANTS_RS[*constant_idx + 2]).unwrap();
 
+                    // TODO: turn this into a helper function, then add inverse sbox
                     config.circuit_params.s_add_rcs.enable(region, *offset)?; // enable the ARC selector 
                     *constant_idx += 3; // 3 round constants used from the flat list
                     *offset += 1; // first row used for fixed columns and initial state
@@ -668,7 +718,13 @@ impl<F: PrimeField> PermutationInstructions<F> for RescueChip<F> {
                         state[1].value().map(|v| *v + rc1),
                         state[2].value().map(|v| *v + rc2)
                     ];
-                }
+
+                    state[0] = region.assign_advice(|| "s0_sb", config.circuit_params.advice[0], *offset, || after_arc[0])?;
+                    state[1] = region.assign_advice(|| "s1_sb", config.circuit_params.advice[1], *offset, || after_arc[1])?;
+                    state[2] = region.assign_advice(|| "s2_sb", config.circuit_params.advice[2], *offset, || after_arc[2])?;
+
+                    Ok(())
+                };
 
                 Ok([Number(state[0].clone()), Number(state[1].clone()), Number(state[2].clone())])
             }
