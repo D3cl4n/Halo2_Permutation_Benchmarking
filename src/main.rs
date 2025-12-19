@@ -575,7 +575,7 @@ impl<F: PrimeField> PermutationInstructions<F> for PoseidonChip<F> {
                 };
 
                 // half of the full rounds
-                for _ in 0..(config.permutation_params.full_rounds / 2) { //TODO refactor to remove P generic and use concrete?
+                for _ in 0..(config.permutation_params.full_rounds / 2) { 
                     poseidon_round(&mut region, &mut state, &mut constant_idx, &mut offset, true)?;
                 }
 
@@ -596,14 +596,24 @@ impl<F: PrimeField> PermutationInstructions<F> for PoseidonChip<F> {
 }
 
 // implementation of the PermutationInstructions trait for the RescueChip
-// impl<F: PrimeField, P: PermutationParams<F>> PermutationInstructions<F> for RescueChip<F, P> {
-//     type Num = Number<F>;
+impl<F: PrimeField> PermutationInstructions<F> for RescueChip<F> {
+    type Num = Number<F>;
 
-//     fn expose_as_public(&self, layouter: impl Layouter<F>, num: Self::Num, row: usize) -> Result<(), Error> {
-//         let config = self.config();
-//         layouter.constrain_instance(num.0.cell(), config.circuit_params.instance, row)
-//     }
-// }
+    fn expose_as_public(&self, mut layouter: impl Layouter<F>, num: Self::Num, row: usize) -> Result<(), Error> {
+        let config = self.config();
+        layouter.constrain_instance(num.0.cell(), config.circuit_params.instance, row)
+    }
+
+    fn permute(
+        &self, mut layouter: impl Layouter<F>, 
+        a0: Value<F>,
+        a1: Value<F>,
+        a2: Value<F>
+    ) -> Result<[Self::Num; 3], Error> {
+        let config = self.config();
+        // TODO: fill this in, potentially use different MDS than poseidon per the other test case
+    }
+}
 
 // main function
 fn main() {
