@@ -119,6 +119,25 @@ struct RescueChip<F: PrimeField> {
     _marker: PhantomData<F>,
 }
 
+// Poseidon circuit structure
+#[derive(Default)]
+struct PoseidonCircuit<F: PrimeField> {
+    s0: Value<F>, 
+    s1: Value<F>, 
+    s2: Value<F>,
+    full_rounds: usize,
+    partial_rounds: usize
+}
+
+// Rescue-Prime circuit structure
+#[derive(Default)]
+struct RescueCircuit<F: PrimeField> {
+    s0: Value<F>, 
+    s1: Value<F>, 
+    s2: Value<F>,
+    rounds: usize
+}
+
 // implement the Chip trait for PoseidonChip
 impl<F: PrimeField> Chip<F> for PoseidonChip<F> {
     type Config = PoseidonChipConfig<F>;
@@ -770,6 +789,80 @@ impl<F: PrimeField> PermutationInstructions<F> for RescueChip<F> {
                 Ok([Number(state[0].clone()), Number(state[1].clone()), Number(state[2].clone())])
             }
         )
+    }
+}
+
+// helper function to return common parameters struct
+fn get_common_params<F: PrimeField>() -> PermutationParameters<F> {
+    let state_size: usize = 3;
+    let rate: usize = 2;
+    let capacity: usize = 1;
+    let mds: [[F; 3]; 3] = [
+        [
+            F::from_str_vartime("27854988750630959170337239780597144027224715023811960992659706878268355039181").unwrap(), 
+            F::from_str_vartime("25146695260744508059100624982461970690166157722474767565243652164077487269055").unwrap(), 
+            F::from_str_vartime("20045359041216123667749848881863965260443684681509271093016182932435520519586").unwrap()
+        ],
+        [
+            F::from_str_vartime("14489116502293865465195620705098702569149962166993518933952339786917836503875").unwrap(), 
+            F::from_str_vartime("13125423966940654332711887575940116829944663267413330181877013057693186361539").unwrap(), 
+            F::from_str_vartime("37781904496949962127477230973432217892379931214289750852498713884075794707207").unwrap()
+        ],
+        [
+            F::from_str_vartime("13626913895298938265545264952401615832299228269982032679076937571883280705196").unwrap(),
+            F::from_str_vartime("1961062001717124873779753860369853658060849384038305407377314938662537282272").unwrap(),
+            F::from_str_vartime("39178371364179396693874733819376491076633720395229958100530484864695867731796").unwrap()
+        ]
+    ];
+
+    PermutationParameters {
+        state_size,
+        rate,
+        capacity,
+        mds
+    }
+}
+
+// implementation of the Circuit trait for the Poseidon Circuit
+impl<F: PrimeField> Circuit<F> for PoseidonCircuit<F> {
+    type Config = PoseidonChipConfig<F>;
+    type FloorPlanner = SimpleFloorPlanner;
+
+    fn without_witnesses(&self) -> Self {
+        Self::default()
+    }
+
+    fn configure(meta: &mut ConstraintSystem<F>) -> Self::Config {
+        let advice = [meta.advice_column(), meta.advice_column(), meta.advice_column()];
+        let fixed = [meta.fixed_column(), meta.fixed_column(), meta.fixed_column()];
+        let instance = meta.instance_column();
+        
+        let common_params = get_common_params();
+        let permutation_params = Poseidon {
+            common_params,
+            partial_rounds: 57 as usize,
+            full_rounds: 8 as usize,
+            n: 195 as usize,
+            alpha: F::from(5)
+        };
+        
+        PoseidonChip::configure(meta, advice, fixed, instance, permutation_params)
+    }
+
+    fn synthesize(&self, config: Self::Config, mut layouter: impl Layouter<F>) -> Result<(), Error> {
+        let chip = PoseidonChip::construct(config);
+        let result = chip.permute(
+            layouter.namespace(|| "poseidon_permutation"),
+            self.s0,
+            self.s1,
+            self.s2
+        )?;
+
+        chip.expose_as_public(layouter.namespace(|| "result_s0"), Number(result[0].0.clone()), 0)?; // better way than re-wrap?
+        chip.expose_as_public(layouter.namespace(|| "result_s1"), Number(result[1].0.clone()), 1)?;
+        chip.expose_as_public(layouter.namespace(|| "result_s2"), Number(result[2].0.clone()), 2)?;
+        
+        Ok(())
     }
 }
 
