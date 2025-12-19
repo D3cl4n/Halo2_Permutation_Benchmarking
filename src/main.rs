@@ -750,6 +750,12 @@ impl<F: PrimeField> PermutationInstructions<F> for RescueChip<F> {
                     state[1] = region.assign_advice(|| "s1_sb", config.circuit_params.advice[1], *offset, || after_sb_inv[1])?;
                     state[2] = region.assign_advice(|| "s2_sb", config.circuit_params.advice[2], *offset, || after_sb_inv[2])?;
 
+                    // second mds multiplication
+                    mds_mul(state, region, offset)?;
+
+                    // second inject/add round constants
+                    inject_rcs(state, region, offset, constant_idx)?;
+
                     Ok(())
                 };
 
