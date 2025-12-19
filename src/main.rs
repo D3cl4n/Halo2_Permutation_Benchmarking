@@ -124,7 +124,7 @@ struct RescueChip<F: PrimeField> {
 struct PoseidonCircuit<F: PrimeField> {
     s0: Value<F>, 
     s1: Value<F>, 
-    s2: Value<F>,
+    s2: Value<F>
 }
 
 // Rescue-Prime circuit structure
@@ -132,8 +132,7 @@ struct PoseidonCircuit<F: PrimeField> {
 struct RescueCircuit<F: PrimeField> {
     s0: Value<F>, 
     s1: Value<F>, 
-    s2: Value<F>,
-
+    s2: Value<F>
 }
 
 // implement the Chip trait for PoseidonChip
