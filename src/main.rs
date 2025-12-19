@@ -612,6 +612,67 @@ impl<F: PrimeField> PermutationInstructions<F> for RescueChip<F> {
     ) -> Result<[Self::Num; 3], Error> {
         let config = self.config();
         // TODO: fill this in, potentially use different MDS than poseidon per the other test case
+        layouter.assign_region(
+            || "Rescue-Prime_Permutation", |mut region| {
+                let mut constant_idx: usize = 0; // index into round constants
+                let mut offset: usize = 0; // row index for computations on state
+
+                // initial state
+                let mut state = [
+                    region.assign_advice(|| "state_0", config.circuit_params.advice[0], offset, || a0)?,
+                    region.assign_advice(|| "state_1", config.circuit_params.advice[1], offset, || a1)?, 
+                    region.assign_advice(|| "state_2", config.circuit_params.advice[2], offset, || a2)?
+                ];
+
+                // helper function for power of 3 for SubBytes (in-place modification)
+                let pow3 = |a: F| -> F {
+                    let temp = a * a; // a^2
+                    a * temp // a^3
+                };
+
+                // helper function for computing one rescue round
+                let rescue_round = |
+                    region: &mut Region<F>,
+                    state: &mut [AssignedCell<F, F>; 3],
+                    constant_idx: &mut usize,
+                    offset: &mut usize,
+                | -> Result<(), Error> {
+                    config.s_sub_bytes.enable(region, *offset)?;
+                    *offset += 1;
+
+                    let after_sb = [
+                        state[0].value().map(|v| pow3(*v)),
+                        state[1].value().map(|v| pow3(*v)),
+                        state[2].value().map(|v| pow3(*v))
+                    ];
+
+                    state[0] = region.assign_advice(|| "s0_sb", config.circuit_params.advice[0], *offset, || after_sb[0])?;
+                    state[1] = region.assign_advice(|| "s1_sb", config.circuit_params.advice[1], *offset, || after_sb[1])?;
+                    state[2] = region.assign_advice(|| "s2_sb", config.circuit_params.advice[2], *offset, || after_sb[2])?;
+
+                    config.circuit_params.s_mds_mul.enable(region, *offset)?;
+                    *offset += 1;
+                    //TODO fill in mds multiply here but make it a helper function since Rescue calls it twice
+
+                    // assign the needed round constants to the fixed column for gate to read from, use local vars for state
+                    let rc0 = F::from_str_vartime(ROUND_CONSTANTS_PS[*constant_idx]).unwrap();
+                    let rc1 = F::from_str_vartime(ROUND_CONSTANTS_PS[*constant_idx + 1]).unwrap();
+                    let rc2 = F::from_str_vartime(ROUND_CONSTANTS_PS[*constant_idx + 2]).unwrap();
+
+                    config.circuit_params.s_add_rcs.enable(region, *offset)?; // enable the ARC selector 
+                    *constant_idx += 3; // 3 round constants used from the flat list
+                    *offset += 1; // first row used for fixed columns and initial state
+
+                    let after_arc = [
+                        state[0].value().map(|v| *v + rc0),
+                        state[1].value().map(|v| *v + rc1),
+                        state[2].value().map(|v| *v + rc2)
+                    ];
+                }
+
+                Ok([Number(state[0].clone()), Number(state[1].clone()), Number(state[2].clone())])
+            }
+        )
     }
 }
 
