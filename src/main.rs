@@ -50,7 +50,7 @@ struct PermutationParameters<F: PrimeField> {
     state_size: usize,
     rate: usize,
     capacity: usize,
-    mds: [[F; 3]; 3] // TODO: change this to a field element
+    mds: [[F; 3]; 3] 
 }
 
 // structure for Poseidon specific permutation parameters
@@ -72,24 +72,6 @@ struct RescuePrime<F: PrimeField> {
     alpha_inv: F
 }
 
-// trait for shared parameters that RescuePrime and Poseidon structs implement
-trait PermutationParams<F: PrimeField>: Clone + Debug {
-    fn common(&self) -> &PermutationParameters<F>;
-}
-
-// implementations for the PermutationParams trait
-impl<F: PrimeField> PermutationParams<F> for Poseidon<F> {
-    fn common(&self) -> &PermutationParameters<F> {
-        &self.common_params
-    }
-}
-
-impl<F: PrimeField> PermutationParams<F> for RescuePrime<F> {
-    fn common(&self) -> &PermutationParameters<F> {
-        &self.common_params
-    }
-}
-
 // struture for common circuit parameters
 #[derive(Clone, Debug)]
 struct CircuitParameters {
@@ -102,8 +84,8 @@ struct CircuitParameters {
 
 // Poseidon chip configuration
 #[derive(Clone, Debug)]
-struct PoseidonChipConfig<F: PrimeField, P: PermutationParams<F>> {
-    permutation_params: P,
+struct PoseidonChipConfig<F: PrimeField> {
+    permutation_params: Poseidon<F>,
     circuit_params: CircuitParameters,
     _marker: PhantomData<F>,
     // the below selectors are specific to Poseidon (Hades construction)
@@ -113,8 +95,8 @@ struct PoseidonChipConfig<F: PrimeField, P: PermutationParams<F>> {
 
 // Rescue-Prime chip configuration
 #[derive(Clone, Debug)]
-struct RescueChipConfig<F: PrimeField, P: PermutationParams<F>> {
-    permutation_params: P,
+struct RescueChipConfig<F: PrimeField> {
+    permutation_params: RescuePrime<F>,
     circuit_params: CircuitParameters,
     _marker: PhantomData<F>,
     // the selector below is specific to Rescue-Prime
@@ -123,20 +105,20 @@ struct RescueChipConfig<F: PrimeField, P: PermutationParams<F>> {
 }
 
 // structure for the poseidon permutation chip
-struct PoseidonChip<F: PrimeField, P: PermutationParams<F>> {
-    config: PoseidonChipConfig<F, P>,
+struct PoseidonChip<F: PrimeField> {
+    config: PoseidonChipConfig<F>,
     _marker: PhantomData<F>,
 }
 
 // structure for the poseidon permutation chip
-struct RescueChip<F: PrimeField, P: PermutationParams<F>> {
-    config: RescueChipConfig<F, P>,
+struct RescueChip<F: PrimeField> {
+    config: RescueChipConfig<F>,
     _marker: PhantomData<F>,
 }
 
 // implement the Chip trait for PoseidonChip
-impl<F: PrimeField, P: PermutationParams<F>> Chip<F> for PoseidonChip<F, P> {
-    type Config = PoseidonChipConfig<F, P>;
+impl<F: PrimeField> Chip<F> for PoseidonChip<F> {
+    type Config = PoseidonChipConfig<F>;
     type Loaded = ();
 
     // getter for the chip config
@@ -151,8 +133,8 @@ impl<F: PrimeField, P: PermutationParams<F>> Chip<F> for PoseidonChip<F, P> {
 }
 
 // implement the Chip trait for RescueChip
-impl<F: PrimeField, P: PermutationParams<F>> Chip<F> for RescueChip<F, P> {
-    type Config = RescueChipConfig<F, P>;
+impl<F: PrimeField> Chip<F> for RescueChip<F> {
+    type Config = RescueChipConfig<F>;
     type Loaded = ();
 
     // getter for the chip config
@@ -316,7 +298,7 @@ fn create_sbox_inv_gate_rs<F: PrimeField>(
 }
 
 // implementation of additional methods for the PoseidonChip
-impl<F: PrimeField, P: PermutationParams<F>> PoseidonChip<F, P> {
+impl<F: PrimeField> PoseidonChip<F> {
     // constructor
     fn construct(config: <Self as Chip<F>>::Config) -> Self {
         PoseidonChip { config, _marker: PhantomData}
@@ -328,7 +310,7 @@ impl<F: PrimeField, P: PermutationParams<F>> PoseidonChip<F, P> {
         advice: [Column<Advice>; 3],
         fixed: [Column<Fixed>; 3],
         instance: Column<Instance>,
-        params: P
+        params: Poseidon<F>
     ) -> <Self as Chip<F>>::Config {
         // enable equality constraints on the instance column
         meta.enable_equality(instance);
@@ -350,7 +332,7 @@ impl<F: PrimeField, P: PermutationParams<F>> PoseidonChip<F, P> {
 
         // create gates and constraints
         create_arc_gate(meta, advice, fixed, s_add_rcs);
-        create_mds_mul_gate(meta, advice, s_mds_mul, &params.common().mds);
+        create_mds_mul_gate(meta, advice, s_mds_mul, &params.common_params.mds);
         create_full_sbox_gate_ps(meta, advice, s_sub_bytes_full);
         create_partial_sbox_gate_ps(meta, advice[0], s_sub_bytes_partial);
 
@@ -374,7 +356,7 @@ impl<F: PrimeField, P: PermutationParams<F>> PoseidonChip<F, P> {
 }
 
 // implementation of additional methods for the RescueChip
-impl<F: PrimeField, P: PermutationParams<F>> RescueChip<F, P> {
+impl<F: PrimeField> RescueChip<F> {
     // constructor
     fn construct(config: <Self as Chip<F>>::Config) -> Self {
         RescueChip { config, _marker: PhantomData}
@@ -386,7 +368,7 @@ impl<F: PrimeField, P: PermutationParams<F>> RescueChip<F, P> {
         advice: [Column<Advice>; 3],
         fixed: [Column<Fixed>; 3],
         instance: Column<Instance>,
-        params: P
+        params: RescuePrime<F>
     ) -> <Self as Chip<F>>::Config {
         // enable equality constraints on the instance column
         meta.enable_equality(instance);
@@ -408,7 +390,7 @@ impl<F: PrimeField, P: PermutationParams<F>> RescueChip<F, P> {
 
         // create gates and constraints
         create_arc_gate(meta, advice, fixed, s_add_rcs);
-        create_mds_mul_gate(meta, advice, s_mds_mul, &params.common().mds);
+        create_mds_mul_gate(meta, advice, s_mds_mul, &params.common_params.mds);
         create_sbox_gate_rs(meta, advice, s_sub_bytes);
         create_sbox_inv_gate_rs(meta, advice, s_sub_bytes_inv);
 
@@ -432,7 +414,7 @@ impl<F: PrimeField, P: PermutationParams<F>> RescueChip<F, P> {
 }
 
 // trait for the sub-functions of the circuit
-trait PermutationInstructions<F: PrimeField, P: PermutationParams<F>>: Chip<F> {
+trait PermutationInstructions<F: PrimeField>: Chip<F> {
     type Num;
 
     // expose a value as public for
@@ -449,7 +431,7 @@ trait PermutationInstructions<F: PrimeField, P: PermutationParams<F>>: Chip<F> {
 }
 
 // implementation of the PermutationInstructions trait for the PoseidonChip
-impl<F: PrimeField, P: PermutationParams<F>> PermutationInstructions<F, P> for PoseidonChip<F, P> {
+impl<F: PrimeField> PermutationInstructions<F> for PoseidonChip<F> {
     type Num = Number<F>;
 
     fn expose_as_public(&self, mut layouter: impl Layouter<F>, num: Self::Num, row: usize) -> Result<(), Error> {
@@ -516,7 +498,7 @@ impl<F: PrimeField, P: PermutationParams<F>> PermutationInstructions<F, P> for P
 
                     // SubBytes based on parameter for full or partial round (partial round only applies to state[0])
                     if full_round == true {
-                        config.s_sub_bytes_full.enable(region, *offset);
+                        config.s_sub_bytes_full.enable(region, *offset)?;
                         *offset += 1;
 
                         let after_sb = [
@@ -545,18 +527,18 @@ impl<F: PrimeField, P: PermutationParams<F>> PermutationInstructions<F, P> for P
                     
                     let mds = [
                         [
-                            config.permutation_params.common().mds[0][0], 
-                            config.permutation_params.common().mds[0][1], 
-                            config.permutation_params.common().mds[0][2]],
+                            config.permutation_params.common_params.mds[0][0], 
+                            config.permutation_params.common_params.mds[0][1], 
+                            config.permutation_params.common_params.mds[0][2]],
                         [
-                            config.permutation_params.common().mds[1][0], 
-                            config.permutation_params.common().mds[1][1], 
-                            config.permutation_params.common().mds[1][2]
+                            config.permutation_params.common_params.mds[1][0], 
+                            config.permutation_params.common_params.mds[1][1], 
+                            config.permutation_params.common_params.mds[1][2]
                         ],
                         [
-                            config.permutation_params.common().mds[2][0], 
-                            config.permutation_params.common().mds[2][1], 
-                            config.permutation_params.common().mds[2][2]
+                            config.permutation_params.common_params.mds[2][0], 
+                            config.permutation_params.common_params.mds[2][1], 
+                            config.permutation_params.common_params.mds[2][2]
                         ]
                     ];
 
