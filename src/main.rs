@@ -65,7 +65,8 @@ struct Poseidon<F: PrimeField> {
     partial_rounds: usize,
     full_rounds: usize,
     n: usize,
-    alpha: F
+    alpha: F,
+    mds: [[F; 3]; 3]
 }
 
 // structure for Rescue-Prime specific permutation parameters
@@ -74,7 +75,8 @@ struct RescuePrime<F: PrimeField> {
     common_params: PermutationParameters<F>,
     rounds: usize,
     alpha: F,
-    alpha_inv: BigUint
+    alpha_inv: BigUint,
+    mds: [[F; 3]; 3]
 }
 
 // struture for common circuit parameters
@@ -794,33 +796,16 @@ impl<F: PrimeField> PermutationInstructions<F> for RescueChip<F> {
 }
 
 // helper function to return common parameters struct
+// TODO: change so that rescue uses it's standard MDS matrix for BLS12381 remove MDS from definition
 fn get_common_params<F: PrimeField>() -> PermutationParameters<F> {
     let state_size: usize = 3;
     let rate: usize = 2;
     let capacity: usize = 1;
-    let mds: [[F; 3]; 3] = [
-        [
-            F::from_str_vartime("27854988750630959170337239780597144027224715023811960992659706878268355039181").unwrap(), 
-            F::from_str_vartime("25146695260744508059100624982461970690166157722474767565243652164077487269055").unwrap(), 
-            F::from_str_vartime("20045359041216123667749848881863965260443684681509271093016182932435520519586").unwrap()
-        ],
-        [
-            F::from_str_vartime("14489116502293865465195620705098702569149962166993518933952339786917836503875").unwrap(), 
-            F::from_str_vartime("13125423966940654332711887575940116829944663267413330181877013057693186361539").unwrap(), 
-            F::from_str_vartime("37781904496949962127477230973432217892379931214289750852498713884075794707207").unwrap()
-        ],
-        [
-            F::from_str_vartime("13626913895298938265545264952401615832299228269982032679076937571883280705196").unwrap(),
-            F::from_str_vartime("1961062001717124873779753860369853658060849384038305407377314938662537282272").unwrap(),
-            F::from_str_vartime("39178371364179396693874733819376491076633720395229958100530484864695867731796").unwrap()
-        ]
-    ];
 
     PermutationParameters {
         state_size,
         rate,
-        capacity,
-        mds
+        capacity
     }
 }
 
@@ -844,7 +829,24 @@ impl<F: PrimeField> Circuit<F> for PoseidonCircuit<F> {
             partial_rounds: 57 as usize,
             full_rounds: 8 as usize,
             n: 195 as usize,
-            alpha: F::from(5)
+            alpha: F::from(5),
+            mds: [[F; 3]; 3] = [
+                [
+                    F::from_str_vartime("27854988750630959170337239780597144027224715023811960992659706878268355039181").unwrap(), 
+                    F::from_str_vartime("25146695260744508059100624982461970690166157722474767565243652164077487269055").unwrap(), 
+                    F::from_str_vartime("20045359041216123667749848881863965260443684681509271093016182932435520519586").unwrap()
+                ],
+                [
+                    F::from_str_vartime("14489116502293865465195620705098702569149962166993518933952339786917836503875").unwrap(), 
+                    F::from_str_vartime("13125423966940654332711887575940116829944663267413330181877013057693186361539").unwrap(), 
+                    F::from_str_vartime("37781904496949962127477230973432217892379931214289750852498713884075794707207").unwrap()
+                ],
+                [
+                    F::from_str_vartime("13626913895298938265545264952401615832299228269982032679076937571883280705196").unwrap(),
+                    F::from_str_vartime("1961062001717124873779753860369853658060849384038305407377314938662537282272").unwrap(),
+                    F::from_str_vartime("39178371364179396693874733819376491076633720395229958100530484864695867731796").unwrap()
+                ]
+            ]
         };
         
         PoseidonChip::configure(meta, advice, fixed, instance, permutation_params)
@@ -887,6 +889,23 @@ impl<F: PrimeField> Circuit<F> for RescueCircuit<F> {
             rounds: 4,
             alpha: F::from(5),
             alpha_inv: BigUint::from_str("20974350070050476191779096203274386335076221000211055129041463479975432473805").unwrap()
+            mds: [[F; 3]; 3] = [ // TODO: change this based on py script
+                [
+                    F::from_str_vartime("27854988750630959170337239780597144027224715023811960992659706878268355039181").unwrap(), 
+                    F::from_str_vartime("25146695260744508059100624982461970690166157722474767565243652164077487269055").unwrap(), 
+                    F::from_str_vartime("20045359041216123667749848881863965260443684681509271093016182932435520519586").unwrap()
+                ],
+                [
+                    F::from_str_vartime("14489116502293865465195620705098702569149962166993518933952339786917836503875").unwrap(), 
+                    F::from_str_vartime("13125423966940654332711887575940116829944663267413330181877013057693186361539").unwrap(), 
+                    F::from_str_vartime("37781904496949962127477230973432217892379931214289750852498713884075794707207").unwrap()
+                ],
+                [
+                    F::from_str_vartime("13626913895298938265545264952401615832299228269982032679076937571883280705196").unwrap(),
+                    F::from_str_vartime("1961062001717124873779753860369853658060849384038305407377314938662537282272").unwrap(),
+                    F::from_str_vartime("39178371364179396693874733819376491076633720395229958100530484864695867731796").unwrap()
+                ]
+            ]
         };
         
         RescueChip::configure(meta, advice, fixed, instance, permutation_params)
