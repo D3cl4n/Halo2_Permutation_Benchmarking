@@ -455,6 +455,8 @@ impl<F: PrimeField> PermutationInstructions<F> for PoseidonChip<F> {
                 let mut constant_idx: usize = 0; // index into round constants
                 let mut offset: usize = 0; // row index for computations on state
                 let mut advice_cell_ctr: usize = 0; 
+                let mut fixed_cell_ctr: usize = 0;
+                let mut activated_gates_ctr: usize = 0;
 
                 // initial state
                 let mut state = [
@@ -479,7 +481,9 @@ impl<F: PrimeField> PermutationInstructions<F> for PoseidonChip<F> {
                     constant_idx: &mut usize,
                     offset: &mut usize,
                     full_round: bool,
-                    advice_cell_ctr: &mut usize
+                    advice_cell_ctr: &mut usize,
+                    fixed_cell_ctr: &mut usize,
+                    activated_gates_ctr: &mut usize
                 | -> Result<(), Error> {
                     // assign the needed round constants to the fixed column for gate to read from, use local vars for state
                     let rc0 = F::from_str_vartime(ROUND_CONSTANTS_PS[*constant_idx]).unwrap();
@@ -488,8 +492,10 @@ impl<F: PrimeField> PermutationInstructions<F> for PoseidonChip<F> {
                     region.assign_fixed(|| "c0", config.circuit_params.fixed[0], *offset, || Value::known(rc0))?;
                     region.assign_fixed(|| "c1", config.circuit_params.fixed[1], *offset, || Value::known(rc1))?;
                     region.assign_fixed(|| "c2", config.circuit_params.fixed[2], *offset, || Value::known(rc2))?;
+                    *fixed_cell_ctr += 3;
 
                     config.circuit_params.s_add_rcs.enable(region, *offset)?; // enable the ARC selector 
+                    *activated_gates_ctr += 1;
                     *constant_idx += 3; // 3 round constants used from the flat list
                     *offset += 1; // first row used for fixed columns and initial state
 
@@ -508,6 +514,7 @@ impl<F: PrimeField> PermutationInstructions<F> for PoseidonChip<F> {
                     // SubBytes based on parameter for full or partial round (partial round only applies to state[0])
                     if full_round == true {
                         config.s_sub_bytes_full.enable(region, *offset)?;
+                        *activated_gates_ctr += 1;
                         *offset += 1;
 
                         let after_sb = [
@@ -524,6 +531,7 @@ impl<F: PrimeField> PermutationInstructions<F> for PoseidonChip<F> {
 
                     else {
                         config.s_sub_bytes_partial.enable(region, *offset)?;
+                        *activated_gates_ctr += 1;
                         *offset += 1;
                         state[0] = region.assign_advice(|| "s0_sb", config.circuit_params.advice[0], *offset, || state[0].value().map(|v| pow5(*v)))?;
                         // copy other values to new offset, without modification
@@ -534,6 +542,7 @@ impl<F: PrimeField> PermutationInstructions<F> for PoseidonChip<F> {
 
                     // MixLayer
                     config.circuit_params.s_mds_mul.enable(region, *offset)?;
+                    *activated_gates_ctr += 1;
                     *offset += 1;
                     
                     let mds = [
@@ -585,23 +594,54 @@ impl<F: PrimeField> PermutationInstructions<F> for PoseidonChip<F> {
 
                 // half of the full rounds
                 for _ in 0..(config.permutation_params.full_rounds / 2) { 
-                    poseidon_round(&mut region, &mut state, &mut constant_idx, &mut offset, true, &mut advice_cell_ctr)?;
+                    poseidon_round(
+                        &mut region, 
+                        &mut state, 
+                        &mut constant_idx, 
+                        &mut offset, 
+                        true, 
+                        &mut advice_cell_ctr,
+                        &mut fixed_cell_ctr,
+                        &mut activated_gates_ctr
+                    )?;
                 }
 
                 // all of the partial rounds
                 for _ in 0..config.permutation_params.partial_rounds {
-                    poseidon_round(&mut region, &mut state, &mut constant_idx, &mut offset, false, &mut advice_cell_ctr)?;
+                    poseidon_round(
+                        &mut region, 
+                        &mut state, 
+                        &mut constant_idx, 
+                        &mut offset, 
+                        false, 
+                        &mut advice_cell_ctr,
+                        &mut fixed_cell_ctr,
+                        &mut activated_gates_ctr
+                    )?;
                 }
 
                 // second half of the full rounds
                 for _ in 0..(config.permutation_params.full_rounds / 2) {
-                    poseidon_round(&mut region, &mut state, &mut constant_idx, &mut offset, true, &mut advice_cell_ctr)?;
+                    poseidon_round(
+                        &mut region, 
+                        &mut state, 
+                        &mut constant_idx, 
+                        &mut offset, 
+                        true, 
+                        &mut advice_cell_ctr,
+                        &mut fixed_cell_ctr,
+                        &mut activated_gates_ctr
+                    )?;
                 }
 
                 // log the number of rows used for Poseidon
                 println!("Poseidon rows used: {}", offset);
                 // log the number of advice cells used for Poseidon
                 println!("Poseidon advice cells used: {}", advice_cell_ctr);
+                // log the number of fixed cells used for Poseidon
+                println!("Poseidon fixed cells used: {}", fixed_cell_ctr);
+                // log the number of activated gates used for Poseidon
+                println!("Poseidon activated gates: {}", activated_gates_ctr);
 
                 Ok([Number(state[0].clone()), Number(state[1].clone()), Number(state[2].clone())])
             }
@@ -629,6 +669,8 @@ impl<F: PrimeField> PermutationInstructions<F> for RescueChip<F> {
             || "Rescue-Prime_Permutation", |mut region| {
                 let mut offset: usize = 0; // row index for computations on state
                 let mut advice_cell_ctr: usize = 0; 
+                let mut fixed_cell_ctr: usize = 0;
+                let mut activated_gates_ctr: usize = 0;
 
                 // initial state
                 let mut state = [
@@ -648,7 +690,11 @@ impl<F: PrimeField> PermutationInstructions<F> for RescueChip<F> {
 
                 // helper function for MDS multiplication
                 let mds_mul = |
-                    state: &mut [AssignedCell<F, F>; 3], region: &mut Region<F>, offset: &mut usize, advice_cell_ctr: &mut usize
+                    state: &mut [AssignedCell<F, F>; 3], 
+                    region: &mut Region<F>, 
+                    offset: &mut usize, 
+                    advice_cell_ctr: &mut usize,
+                    activated_gates_ctr: &mut usize
                 | -> Result<(), Error> {
                     let mds = [
                         [
@@ -669,6 +715,7 @@ impl<F: PrimeField> PermutationInstructions<F> for RescueChip<F> {
                     ];
 
                     config.circuit_params.s_mds_mul.enable(region, *offset)?;
+                    *activated_gates_ctr += 1;
                     *offset += 1;
 
                     let after_ml = [
@@ -708,7 +755,9 @@ impl<F: PrimeField> PermutationInstructions<F> for RescueChip<F> {
                     idx_0: usize,
                     idx_1: usize,
                     idx_2: usize, 
-                    advice_cell_ctr: &mut usize
+                    advice_cell_ctr: &mut usize,
+                    fixed_cell_ctr: &mut usize,
+                    activated_gates_ctr: &mut usize
                 | -> Result<(), Error> {
                     // assign the needed round constants to the fixed column for gate to read from, use local vars for state
                     let rc0 = F::from_str_vartime(ROUND_CONSTANTS_RS[idx_0]).unwrap();
@@ -717,8 +766,10 @@ impl<F: PrimeField> PermutationInstructions<F> for RescueChip<F> {
                     region.assign_fixed(|| "c0", config.circuit_params.fixed[0], *offset, || Value::known(rc0))?;
                     region.assign_fixed(|| "c1", config.circuit_params.fixed[1], *offset, || Value::known(rc1))?;
                     region.assign_fixed(|| "c2", config.circuit_params.fixed[2], *offset, || Value::known(rc2))?;
+                    *fixed_cell_ctr += 3;
 
                     config.circuit_params.s_add_rcs.enable(region, *offset)?; // enable the ARC selector 
+                    *activated_gates_ctr += 1;
                     *offset += 1; 
 
                     let after_arc = [
@@ -741,9 +792,12 @@ impl<F: PrimeField> PermutationInstructions<F> for RescueChip<F> {
                     state: &mut [AssignedCell<F, F>; 3],
                     round: usize,
                     offset: &mut usize,
-                    advice_cell_ctr: &mut usize
+                    advice_cell_ctr: &mut usize,
+                    fixed_cell_ctr: &mut usize,
+                    activated_gates_ctr: &mut usize
                 | -> Result<(), Error> {
                     config.s_sub_bytes.enable(region, *offset)?;
+                    *activated_gates_ctr += 1;
                     *offset += 1;
 
                     let after_sb = [
@@ -758,15 +812,26 @@ impl<F: PrimeField> PermutationInstructions<F> for RescueChip<F> {
                     *advice_cell_ctr += 3; // increment number of advice cells used
 
                     // MDS Multiplication helper function
-                    mds_mul(state, region, offset, advice_cell_ctr)?;
+                    mds_mul(state, region, offset, advice_cell_ctr, activated_gates_ctr)?;
 
                     // Add/Inject Round Constants helper function
                     let state_size: usize = config.permutation_params.common_params.state_size;
                     let mut base_idx: usize = 2*round*state_size;
-                    inject_rcs(state, region, offset, base_idx, base_idx+1, base_idx+2, advice_cell_ctr)?;
+                    inject_rcs(
+                        state, 
+                        region, 
+                        offset, 
+                        base_idx, 
+                        base_idx+1, 
+                        base_idx+2, 
+                        advice_cell_ctr, 
+                        fixed_cell_ctr, 
+                        activated_gates_ctr
+                    )?;
                     
                     // inverse SubBytes
                     config.s_sub_bytes_inv.enable(region, *offset)?;
+                    *activated_gates_ctr += 1;
                     *offset += 1;
                     
                     let alpha_inv_vec: Vec<u64> = config.permutation_params.alpha_inv.to_u64_digits();
@@ -783,24 +848,46 @@ impl<F: PrimeField> PermutationInstructions<F> for RescueChip<F> {
                     *advice_cell_ctr += 3; // increment number of advice cells used
 
                     // second mds multiplication
-                    mds_mul(state, region, offset, advice_cell_ctr)?;
+                    mds_mul(state, region, offset, advice_cell_ctr, activated_gates_ctr)?;
 
                     // second inject/add round constants
                     base_idx = 2*round*state_size+state_size;
-                    inject_rcs(state, region, offset, base_idx, base_idx+1, base_idx+2, advice_cell_ctr)?;
+                    inject_rcs(
+                        state, 
+                        region, 
+                        offset, 
+                        base_idx, 
+                        base_idx+1, 
+                        base_idx+2, 
+                        advice_cell_ctr, 
+                        fixed_cell_ctr, 
+                        activated_gates_ctr
+                    )?;
 
                     Ok(())
                 };
 
                 // perform the Rescue-Prime rounds
                 for i in 0..config.permutation_params.rounds {
-                    rescue_round(&mut region, &mut state, i, &mut offset, &mut advice_cell_ctr)?;
+                    rescue_round(
+                        &mut region, 
+                        &mut state, 
+                        i, 
+                        &mut offset, 
+                        &mut advice_cell_ctr, 
+                        &mut fixed_cell_ctr, 
+                        &mut activated_gates_ctr
+                    )?;
                 }
 
                 // log the number of rows used for Rescue-Prime
                 println!("Rescue-Prime rows used: {}", offset);
                 // log the number of advice cells used for Rescue-Prime
                 println!("Rescue-Prime advice cells used: {}", advice_cell_ctr);
+                // log the number of fixed cells used for Rescue-Prime
+                println!("Rescue-Prime fixed cells used: {}", fixed_cell_ctr);
+                // log the number of activated gates used for Rescue-Prime
+                println!("Rescue-Prime activated gates: {}", activated_gates_ctr);
 
                 Ok([Number(state[0].clone()), Number(state[1].clone()), Number(state[2].clone())])
             }
