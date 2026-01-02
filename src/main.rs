@@ -11,27 +11,9 @@ use halo2_proofs::{
 };
 
 /*
-* Poseidon vs. Rescue-Prime permutation benchmarking over BLS12-381
-* Shared parameters: state_size = 3, rate = 2, capacity = 1, MDS, p = 0x73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001
-* Poseidon specific parameters: N = 195, full_rounds = 8, partial_rounds = 57, alpha = 5
-* Rescue-Prime specific parameters: rounds = 4, alpha = 3, alpha_inv = 12297829382473034371
-* NOTE: Round constants also differ for both permutations, not pasted here
-* NOTE: MDS matrix is the same for both permutations, not pasted here
-* -------------------------------------------------------------------------------------------
-* Shared Circuit Construction:
-*  - 3 advice columns, one per state element
-*  - 1 instance column, holding the final state values after the permutation
-*  - 3 fixed columns, one per constant to be added to the state elements
-*  - MDS Multiply Gate: multiplies the vector representing the state by the MDS matrix
-*       - Selector: s_mds_mul
-*  - Add Round Constants Gate: injects/adds 3 round constants to the state elements
-*       - Selector: s_add_rcs
-*  - S-Box Gate: raises the state elements to a given power
-*       - Selector: s_sub_bytes
-* -------------------------------------------------------------------------------------------
 * Benchmarks
 *  - Number of rows
-*  - Number of gates enabled (also reveals number of constraints minus copy constraints)
+*  - Number of gates enabled and number of constraints per gate
 *  - MockProver runtime
 *  - Number of round constants
 *  - Number of rounds
@@ -608,6 +590,9 @@ impl<F: PrimeField> PermutationInstructions<F> for PoseidonChip<F> {
                     poseidon_round(&mut region, &mut state, &mut constant_idx, &mut offset, true)?;
                 }
 
+                // log the number of rows used for Poseidon
+                println!("Poseidon rows used: {}", offset);
+
                 Ok([Number(state[0].clone()), Number(state[1].clone()), Number(state[2].clone())])
             }
         )
@@ -792,6 +777,9 @@ impl<F: PrimeField> PermutationInstructions<F> for RescueChip<F> {
                 for i in 0..config.permutation_params.rounds {
                     rescue_round(&mut region, &mut state, i, &mut offset)?;
                 }
+
+                // log the number of rows used for Rescue-Prime
+                println!("Rescue-Prime rows used: {}", offset);
 
                 Ok([Number(state[0].clone()), Number(state[1].clone()), Number(state[2].clone())])
             }
