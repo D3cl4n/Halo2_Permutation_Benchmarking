@@ -635,13 +635,13 @@ impl<F: PrimeField> PermutationInstructions<F> for PoseidonChip<F> {
                 }
 
                 // log the number of rows used for Poseidon
-                //println!("Poseidon rows used: {}", offset);
+                println!("Poseidon rows used: {}", offset);
                 // log the number of advice cells used for Poseidon
-                //println!("Poseidon advice cells used: {}", advice_cell_ctr);
+                println!("Poseidon advice cells used: {}", advice_cell_ctr);
                 // log the number of fixed cells used for Poseidon
-                //println!("Poseidon fixed cells used: {}", fixed_cell_ctr);
+                println!("Poseidon fixed cells used: {}", fixed_cell_ctr);
                 // log the number of activated gates used for Poseidon
-                //println!("Poseidon activated gates: {}", activated_gates_ctr);
+                println!("Poseidon activated gates: {}", activated_gates_ctr);
 
                 Ok([Number(state[0].clone()), Number(state[1].clone()), Number(state[2].clone())])
             }
@@ -881,13 +881,13 @@ impl<F: PrimeField> PermutationInstructions<F> for RescueChip<F> {
                 }
 
                 // log the number of rows used for Rescue-Prime
-                //println!("Rescue-Prime rows used: {}", offset);
+                println!("Rescue-Prime rows used: {}", offset);
                 // log the number of advice cells used for Rescue-Prime
-                //println!("Rescue-Prime advice cells used: {}", advice_cell_ctr);
+                println!("Rescue-Prime advice cells used: {}", advice_cell_ctr);
                 // log the number of fixed cells used for Rescue-Prime
-                //println!("Rescue-Prime fixed cells used: {}", fixed_cell_ctr);
+                println!("Rescue-Prime fixed cells used: {}", fixed_cell_ctr);
                 // log the number of activated gates used for Rescue-Prime
-                //println!("Rescue-Prime activated gates: {}", activated_gates_ctr);
+                println!("Rescue-Prime activated gates: {}", activated_gates_ctr);
 
                 Ok([Number(state[0].clone()), Number(state[1].clone()), Number(state[2].clone())])
             }
